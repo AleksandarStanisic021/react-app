@@ -14,17 +14,16 @@ export default function ThreeScene() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
 
-    const geometry = new THREE.BoxGeometry();
+    const geometry = new THREE.SphereGeometry(1, 32, 32);
     const material = new THREE.MeshStandardMaterial({ color: 0x0077ff });
-    const cube = new THREE.Mesh(geometry, material);
-    scene.add(cube);
+    const sphere = new THREE.Mesh(geometry, material);
+    scene.add(sphere);
 
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(5, 5, 5);
     scene.add(light);
 
     camera.position.z = 5;
-    const a=2;
 
     let reqId: number;
     const onResize = () => {
@@ -35,8 +34,8 @@ export default function ThreeScene() {
     };
 
     const animate = () => {
-      cube.rotation.x += 0.01;
-      cube.rotation.y += 0.01;
+      sphere.rotation.x += 0.01;
+      sphere.rotation.y += 0.01;
       renderer.render(scene, camera);
       reqId = requestAnimationFrame(animate);
     };
