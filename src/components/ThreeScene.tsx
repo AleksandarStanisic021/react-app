@@ -14,14 +14,33 @@ export default function ThreeScene() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
 
-    const geometry = new THREE.SphereGeometry(1, 32, 32);
-    const material = new THREE.MeshStandardMaterial({ color: 0x0077ff });
-    const sphere = new THREE.Mesh(geometry, material);
-    scene.add(sphere);
+    // First sphere (blue)
+    const geometry1 = new THREE.SphereGeometry(1, 32, 32);
+    const material1 = new THREE.MeshStandardMaterial({ color: 0x0077ff });
+    const sphere1 = new THREE.Mesh(geometry1, material1);
+    sphere1.position.set(-2, 0, 0);
+    scene.add(sphere1);
 
-    const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(5, 5, 5);
-    scene.add(light);
+    // Second sphere (red)
+    const geometry2 = new THREE.SphereGeometry(1, 32, 32);
+    const material2 = new THREE.MeshStandardMaterial({ color: 0xff0077 });
+    const sphere2 = new THREE.Mesh(geometry2, material2);
+    sphere2.position.set(2, 0, 0);
+    scene.add(sphere2);
+
+    // Ambient light for overall illumination
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+    
+    // Directional light for shadows and depth
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(5, 5, 5);
+    scene.add(directionalLight);
+
+    // Red point light
+    const redLight = new THREE.PointLight(0xff0000, 1, 100);
+    redLight.position.set(-3, 3, 3);
+    scene.add(redLight);
 
     camera.position.z = 5;
 
@@ -34,8 +53,10 @@ export default function ThreeScene() {
     };
 
     const animate = () => {
-      sphere.rotation.x += 0.01;
-      sphere.rotation.y += 0.01;
+      sphere1.rotation.x += 0.01;
+      sphere1.rotation.y += 0.01;
+      sphere2.rotation.x -= 0.01;
+      sphere2.rotation.y -= 0.01;
       renderer.render(scene, camera);
       reqId = requestAnimationFrame(animate);
     };
