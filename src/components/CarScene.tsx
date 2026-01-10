@@ -66,7 +66,7 @@ export default function CarScene() {
             
             // If no wheels found in model, create placeholder wheels
             if (wheels.length < 4) {
-              const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
+              const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.35, 16);
               const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
               
               const wheelFL = new THREE.Mesh(wheelGeometry, wheelMaterial);
@@ -156,7 +156,7 @@ export default function CarScene() {
       roof.position.set(0, 1.1, 0.2);
       carGroup.add(roof);
 
-      const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
+      const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.35, 16);
       const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
       
       // Front left wheel
@@ -226,13 +226,40 @@ export default function CarScene() {
       'https://your-car-model-url-4.glb', // Yellow car - replace with actual URL
     ];
 
-    // Where to find free car models:
-    // 1. Sketchfab: https://sketchfab.com/3d-models?features=downloadable&q=car (filter by CC license)
-    // 2. Poly Haven: https://polyhaven.com/models
-    // 3. Free3D: https://free3d.com/3d-models/car
-    // 4. TurboSquid Free: https://www.turbosquid.com/Search/3D-Models/free/car
-    // Make sure to download models in GLTF (.gltf) or GLB (.glb) format
-    // After downloading, host the model files on a CDN or in your public folder
+    // WHERE TO FIND FREE CAR MODELS (CC0/Public Domain - no attribution required):
+    // 
+    // 1. SKETCHFAB - CC0 Concept Cars (High Quality):
+    //    - FREE Concept Car 011: https://sketchfab.com/3d-models/free-concept-car-011-public-domain-cc0-099f72bca4494ef9af317e8d76cd99af
+    //    - FREE Concept Car 004: https://sketchfab.com/3d-models/free-concept-car-004-public-domain-cc0-4cba124633eb494eadc3bb0c4660ad7e
+    //    - FREE Concept Car 025: https://sketchfab.com/3d-models/free-concept-car-025-public-domain-cc0-e3a65443d3e44c33b594cec591c01c05
+    //    - FREE Concept Car 040: https://sketchfab.com/3d-models/free-concept-car-040-public-domain-cc0-9363e93183274ea1bad403ea6fe3ee79
+    //    - Search more: https://sketchfab.com/3d-models?features=downloadable&q=car&sort_by=-likeCount
+    //    - Download: Click "Download 3D Model" → Select GLB format
+    //
+    // 2. POLY PIZZA / QUATERNIUS (Low-Poly, Game-Ready):
+    //    - Car Pack (8 models): https://quaternius.com/packs/cars.html
+    //    - Individual models: https://poly.pizza/bundle/Cars-Bundle-FE5IWe6OMk
+    //    - Car: https://poly.pizza/m/unqqkULtRU
+    //    - SUV: https://poly.pizza/m/xsMtZhBkxL
+    //    - Rover: https://poly.pizza/m/WRd1piJOfh
+    //    - All free for personal and commercial use
+    //
+    // 3. CG 3D:
+    //    - Various free car models in GLB/GLTF: https://cg3d.org
+    //
+    // 4. 3DMETASEA:
+    //    - Military vehicles and car kits: https://3dmetasea.com
+    //
+    // HOSTING YOUR MODELS:
+    // 1. Put GLB files in your /public folder (e.g., public/models/car1.glb)
+    //    Then use: '/models/car1.glb' as the URL
+    // 2. Use a CDN like:
+    //    - Cloudinary (free tier)
+    //    - GitHub Releases (upload files and use raw.githubusercontent.com URLs)
+    //    - jsDelivr (via GitHub releases)
+    //    - AWS S3 / CloudFront
+    //
+    // FORMAT: Make sure models are in GLTF (.gltf) or GLB (.glb) format
     
     if (USE_3D_MODELS && CAR_MODEL_URLS.every(url => url.includes('your-car-model-url'))) {
       console.warn('Please provide actual car model URLs in CAR_MODEL_URLS array');
