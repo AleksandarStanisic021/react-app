@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export default function CarScene() {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -18,90 +19,244 @@ export default function CarScene() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
 
-    // Helper function to create a car with wheel references
+    // Helper function to load a 3D car model and setup
     interface CarGroup extends THREE.Group {
       wheels: THREE.Mesh[];
+      isLoaded: boolean;
     }
 
-    const createCar = (x: number, z: number, color: number): CarGroup => {
+    const loader = new GLTFLoader();
+    
+    // Function to load 3D car models from URLs
+    // Replace URLs with actual car model URLs (GLTF/GLB format)
+    // Free car models available at:
+    // - Sketchfab (with CC license): https://sketchfab.com/3d-models?features=downloadable&q=car
+    // - Poly Haven: https://polyhaven.com/models
+    // - Free3D: https://free3d.com/3d-models/car
+    const loadCarModel = (url: string, x: number, z: number, color: number = 0xFFFFFF): Promise<CarGroup> => {
+      return new Promise((resolve) => {
+        const carGroup = new THREE.Group() as CarGroup;
+        carGroup.wheels = [];
+        carGroup.isLoaded = false;
+        carGroup.position.set(x, 0, z);
+
+        loader.load(
+          url,
+          (gltf) => {
+            const carModel = gltf.scene.clone(); // Clone to avoid issues with multiple instances
+            
+            // Scale and orient the model appropriately (may need adjustment based on model)
+            carModel.scale.set(1, 1, 1);
+            
+            // Try to find wheels in the model
+            const findWheels = (object: THREE.Object3D): THREE.Mesh[] => {
+              const wheels: THREE.Mesh[] = [];
+              object.traverse((child) => {
+                if (child instanceof THREE.Mesh && 
+                    (child.name.toLowerCase().includes('wheel') || 
+                     child.name.toLowerCase().includes('tire') ||
+                     child.name.toLowerCase().includes('rim'))) {
+                  wheels.push(child);
+                }
+              });
+              return wheels;
+            };
+
+            let wheels = findWheels(carModel);
+            
+            // If no wheels found in model, create placeholder wheels
+            if (wheels.length < 4) {
+              const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
+              const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
+              
+              const wheelFL = new THREE.Mesh(wheelGeometry, wheelMaterial);
+              wheelFL.rotation.z = Math.PI / 2;
+              wheelFL.position.set(0.4, 0.3, 0.7);
+              wheelFL.name = 'wheelFL';
+              carModel.add(wheelFL);
+              
+              const wheelFR = new THREE.Mesh(wheelGeometry, wheelMaterial);
+              wheelFR.rotation.z = Math.PI / 2;
+              wheelFR.position.set(-0.4, 0.3, 0.7);
+              wheelFR.name = 'wheelFR';
+              carModel.add(wheelFR);
+              
+              const wheelRL = new THREE.Mesh(wheelGeometry, wheelMaterial);
+              wheelRL.rotation.z = Math.PI / 2;
+              wheelRL.position.set(0.4, 0.3, -0.7);
+              wheelRL.name = 'wheelRL';
+              carModel.add(wheelRL);
+              
+              const wheelRR = new THREE.Mesh(wheelGeometry, wheelMaterial);
+              wheelRR.rotation.z = Math.PI / 2;
+              wheelRR.position.set(-0.4, 0.3, -0.7);
+              wheelRR.name = 'wheelRR';
+              carModel.add(wheelRR);
+              
+              wheels = [wheelFL, wheelFR, wheelRL, wheelRR];
+            }
+
+            // Apply color to car body if specified
+            if (color !== 0xFFFFFF) {
+              carModel.traverse((child) => {
+                if (child instanceof THREE.Mesh && 
+                    !child.name.toLowerCase().includes('wheel') &&
+                    !child.name.toLowerCase().includes('tire') &&
+                    !child.name.toLowerCase().includes('rim') &&
+                    !child.name.toLowerCase().includes('glass') &&
+                    !child.name.toLowerCase().includes('window')) {
+                  if (child.material instanceof THREE.MeshStandardMaterial) {
+                    child.material.color.setHex(color);
+                  } else if (Array.isArray(child.material)) {
+                    child.material.forEach(mat => {
+                      if (mat instanceof THREE.MeshStandardMaterial) {
+                        mat.color.setHex(color);
+                      }
+                    });
+                  }
+                }
+              });
+            }
+
+            carGroup.add(carModel);
+            carGroup.wheels = wheels.slice(0, 4); // Ensure we have exactly 4 wheels
+            carGroup.isLoaded = true;
+            resolve(carGroup);
+          },
+          (progress) => {
+            // Loading progress
+            if (progress.total > 0) {
+              const percent = (progress.loaded / progress.total * 100).toFixed(0);
+              console.log(`Loading car model: ${percent}%`);
+            }
+          },
+          (error) => {
+            console.error('Error loading car model:', error);
+            // Fallback: create a simple geometric car if model fails to load
+            const fallbackCar = createFallbackCar(x, z, color);
+            resolve(fallbackCar);
+          }
+        );
+      });
+    };
+
+    // Fallback function to create a simple car if model loading fails
+    const createFallbackCar = (x: number, z: number, color: number): CarGroup => {
       const carGroup = new THREE.Group() as CarGroup;
 
-      // Car body (main rectangular box)
-      // Geometry: width (x) = 1, height (y) = 0.8, length (z) = 2 (forward direction)
       const bodyGeometry = new THREE.BoxGeometry(1, 0.8, 2);
       const bodyMaterial = new THREE.MeshStandardMaterial({ color });
       const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
       body.position.y = 0.4;
       carGroup.add(body);
 
-      // Car roof (smaller box on top)
       const roofGeometry = new THREE.BoxGeometry(0.9, 0.6, 1.2);
       const roofMaterial = new THREE.MeshStandardMaterial({ color: color * 0.8 });
       const roof = new THREE.Mesh(roofGeometry, roofMaterial);
       roof.position.set(0, 1.1, 0.2);
       carGroup.add(roof);
 
-      // Wheels - positioned correctly for car facing forward (positive Z)
       const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
       const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
       
-      // Front left wheel (front = positive Z, left = positive X)
       const wheelFL = new THREE.Mesh(wheelGeometry, wheelMaterial);
-      wheelFL.rotation.z = Math.PI / 2; // Rotate cylinder to lie flat
-      wheelFL.position.set(0.4, 0.3, 0.7); // Front (z=0.7), Left (x=0.4)
+      wheelFL.rotation.z = Math.PI / 2;
+      wheelFL.position.set(0.4, 0.3, 0.7);
       carGroup.add(wheelFL);
 
-      // Front right wheel (front = positive Z, right = negative X)
       const wheelFR = new THREE.Mesh(wheelGeometry, wheelMaterial);
       wheelFR.rotation.z = Math.PI / 2;
-      wheelFR.position.set(-0.4, 0.3, 0.7); // Front (z=0.7), Right (x=-0.4)
+      wheelFR.position.set(-0.4, 0.3, 0.7);
       carGroup.add(wheelFR);
 
-      // Rear left wheel (rear = negative Z, left = positive X)
       const wheelRL = new THREE.Mesh(wheelGeometry, wheelMaterial);
       wheelRL.rotation.z = Math.PI / 2;
-      wheelRL.position.set(0.4, 0.3, -0.7); // Rear (z=-0.7), Left (x=0.4)
+      wheelRL.position.set(0.4, 0.3, -0.7);
       carGroup.add(wheelRL);
 
-      // Rear right wheel (rear = negative Z, right = negative X)
       const wheelRR = new THREE.Mesh(wheelGeometry, wheelMaterial);
       wheelRR.rotation.z = Math.PI / 2;
-      wheelRR.position.set(-0.4, 0.3, -0.7); // Rear (z=-0.7), Right (x=-0.4)
+      wheelRR.position.set(-0.4, 0.3, -0.7);
       carGroup.add(wheelRR);
 
-      // Windshield (at front of car, positive Z)
-      const windshieldGeometry = new THREE.BoxGeometry(0.92, 0.5, 1.1);
-      const windshieldMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x88ccff, 
-        transparent: true, 
-        opacity: 0.6 
-      });
-      const windshield = new THREE.Mesh(windshieldGeometry, windshieldMaterial);
-      windshield.position.set(0, 1.0, 0.3); // Front of car (z=0.3)
-      carGroup.add(windshield);
-
       carGroup.position.set(x, 0, z);
-      
-      // Store wheel references for easy access [Front Left, Front Right, Rear Left, Rear Right]
       carGroup.wheels = [wheelFL, wheelFR, wheelRL, wheelRR];
+      carGroup.isLoaded = true;
       
       return carGroup;
     };
 
-    // Create multiple cars with Mario 64 vibrant colors
-    const car1 = createCar(-3, 0, 0xFF0000); // Bright red car
-    scene.add(car1);
+    // Car references
+    let car1: CarGroup;
+    let car2: CarGroup;
+    let car3: CarGroup;
+    let yellowCar: CarGroup;
 
-    const car2 = createCar(0, 0, 0x0000FF); // Bright blue car
-    scene.add(car2);
+    // Function to create fallback geometric cars
+    const createFallbackCars = () => {
+      car1 = createFallbackCar(-3, 0, 0xFF0000);
+      scene.add(car1);
 
-    const car3 = createCar(3, 0, 0x00FF00); // Bright green car
-    scene.add(car3);
+      car2 = createFallbackCar(0, 0, 0x0000FF);
+      scene.add(car2);
 
-    // Yellow car (player controlled) - Mario 64 style bright yellow
-    const yellowCar = createCar(0, -2, 0xFFFF00); // Bright yellow car
-    // Car now properly oriented: front faces positive Z when rotation.y = 0
-    scene.add(yellowCar);
+      car3 = createFallbackCar(3, 0, 0x00FF00);
+      scene.add(car3);
+
+      yellowCar = createFallbackCar(0, -2, 0xFFFF00);
+      scene.add(yellowCar);
+    };
+
+    // CAR MODEL CONFIGURATION
+    // To use 3D car models from the internet, replace these URLs with actual GLTF/GLB car model URLs
+    // Set USE_3D_MODELS to true and provide valid URLs below
+    const USE_3D_MODELS = false; // Set to true to load 3D models from URLs
+    const CAR_MODEL_URLS = [
+      'https://your-car-model-url-1.glb', // Red car - replace with actual URL
+      'https://your-car-model-url-2.glb', // Blue car - replace with actual URL
+      'https://your-car-model-url-3.glb', // Green car - replace with actual URL
+      'https://your-car-model-url-4.glb', // Yellow car - replace with actual URL
+    ];
+
+    // Where to find free car models:
+    // 1. Sketchfab: https://sketchfab.com/3d-models?features=downloadable&q=car (filter by CC license)
+    // 2. Poly Haven: https://polyhaven.com/models
+    // 3. Free3D: https://free3d.com/3d-models/car
+    // 4. TurboSquid Free: https://www.turbosquid.com/Search/3D-Models/free/car
+    // Make sure to download models in GLTF (.gltf) or GLB (.glb) format
+    // After downloading, host the model files on a CDN or in your public folder
+    
+    if (USE_3D_MODELS && CAR_MODEL_URLS.every(url => url.includes('your-car-model-url'))) {
+      console.warn('Please provide actual car model URLs in CAR_MODEL_URLS array');
+    }
+
+    // Create cars - using 3D models if enabled, otherwise fallback geometric cars
+    if (USE_3D_MODELS) {
+      // Load 3D models asynchronously
+      Promise.all([
+        loadCarModel(CAR_MODEL_URLS[0] || '', -3, 0, 0xFF0000),
+        loadCarModel(CAR_MODEL_URLS[1] || '', 0, 0, 0x0000FF),
+        loadCarModel(CAR_MODEL_URLS[2] || '', 3, 0, 0x00FF00),
+        loadCarModel(CAR_MODEL_URLS[3] || '', 0, -2, 0xFFFF00),
+      ]).then(([loadedCar1, loadedCar2, loadedCar3, loadedYellowCar]) => {
+        car1 = loadedCar1;
+        car2 = loadedCar2;
+        car3 = loadedCar3;
+        yellowCar = loadedYellowCar;
+        
+        scene.add(car1);
+        scene.add(car2);
+        scene.add(car3);
+        scene.add(yellowCar);
+      }).catch(error => {
+        console.error('Error loading car models, using fallback:', error);
+        // Fallback to geometric cars on error
+        createFallbackCars();
+      });
+    } else {
+      // Use geometric fallback cars (current implementation)
+      createFallbackCars();
+    }
 
     // Mario 64 style green grass ground
     const groundGeometry = new THREE.PlaneGeometry(200, 200);
@@ -271,63 +426,76 @@ export default function CarScene() {
         }
       }
 
-      // Steering controls (A/D)
-      // Rotation speed is proportional to current speed for realistic turning
-      const effectiveRotationSpeed = rotationSpeed * (Math.abs(carSpeed) / maxSpeed + 0.3);
-      
-      if (keys['a']) {
-        // Turn left: rotation direction depends on whether moving forward or backward
-        // When reversing, steering is inverted
-        const turnDirection = carSpeed >= 0 ? 1 : -1;
-        yellowCar.rotation.y += effectiveRotationSpeed * turnDirection;
+      // Only update car controls if yellowCar is loaded and has wheels
+      if (yellowCar && yellowCar.isLoaded && yellowCar.wheels && yellowCar.wheels.length >= 4) {
+        // Steering controls (A/D)
+        // Rotation speed is proportional to current speed for realistic turning
+        const effectiveRotationSpeed = rotationSpeed * (Math.abs(carSpeed) / maxSpeed + 0.3);
         
-        // Rotate front wheels for steering visual
-        yellowCar.wheels[0].rotation.y = Math.min(yellowCar.wheels[0].rotation.y + 0.05, 0.6);
-        yellowCar.wheels[1].rotation.y = Math.min(yellowCar.wheels[1].rotation.y + 0.05, 0.6);
-      } else if (keys['d']) {
-        // Turn right: rotation direction depends on whether moving forward or backward
-        const turnDirection = carSpeed >= 0 ? 1 : -1;
-        yellowCar.rotation.y -= effectiveRotationSpeed * turnDirection;
-        
-        // Rotate front wheels for steering visual
-        yellowCar.wheels[0].rotation.y = Math.max(yellowCar.wheels[0].rotation.y - 0.05, -0.6);
-        yellowCar.wheels[1].rotation.y = Math.max(yellowCar.wheels[1].rotation.y - 0.05, -0.6);
-      } else {
-        // Return wheels to center when not steering
-        yellowCar.wheels[0].rotation.y *= 0.85;
-        yellowCar.wheels[1].rotation.y *= 0.85;
+        if (keys['a']) {
+          // Turn left: rotation direction depends on whether moving forward or backward
+          // When reversing, steering is inverted
+          const turnDirection = carSpeed >= 0 ? 1 : -1;
+          yellowCar.rotation.y += effectiveRotationSpeed * turnDirection;
+          
+          // Rotate front wheels for steering visual
+          if (yellowCar.wheels[0]) yellowCar.wheels[0].rotation.y = Math.min(yellowCar.wheels[0].rotation.y + 0.05, 0.6);
+          if (yellowCar.wheels[1]) yellowCar.wheels[1].rotation.y = Math.min(yellowCar.wheels[1].rotation.y + 0.05, 0.6);
+        } else if (keys['d']) {
+          // Turn right: rotation direction depends on whether moving forward or backward
+          const turnDirection = carSpeed >= 0 ? 1 : -1;
+          yellowCar.rotation.y -= effectiveRotationSpeed * turnDirection;
+          
+          // Rotate front wheels for steering visual
+          if (yellowCar.wheels[0]) yellowCar.wheels[0].rotation.y = Math.max(yellowCar.wheels[0].rotation.y - 0.05, -0.6);
+          if (yellowCar.wheels[1]) yellowCar.wheels[1].rotation.y = Math.max(yellowCar.wheels[1].rotation.y - 0.05, -0.6);
+        } else {
+          // Return wheels to center when not steering
+          if (yellowCar.wheels[0]) yellowCar.wheels[0].rotation.y *= 0.85;
+          if (yellowCar.wheels[1]) yellowCar.wheels[1].rotation.y *= 0.85;
+        }
+
+        // Move car based on its rotation and speed
+        // Car's front faces positive Z when rotation.y = 0 (standard Three.js orientation)
+        if (Math.abs(carSpeed) > 0.001) {
+          // Move forward/backward based on car's current rotation
+          yellowCar.position.x += Math.sin(yellowCar.rotation.y) * carSpeed;
+          yellowCar.position.z += Math.cos(yellowCar.rotation.y) * carSpeed;
+
+          // Rotate all wheels when moving (forward or backward)
+          yellowCar.wheels.forEach((wheel: THREE.Mesh) => {
+            if (wheel) {
+              wheel.rotation.x += wheelRotationSpeed * Math.abs(carSpeed) * (carSpeed >= 0 ? 1 : -1);
+            }
+          });
+        }
       }
 
-      // Move car based on its rotation and speed
-      // Adjust for 90-degree offset: car's front naturally faces positive X
-      if (Math.abs(carSpeed) > 0.001) {
-        // Move forward/backward based on car's current rotation
-        // Add Math.PI/2 offset because car's front faces X, not Z
-        const adjustedRotation = yellowCar.rotation.y + Math.PI / 2;
-        yellowCar.position.x += Math.cos(adjustedRotation) * carSpeed;
-        yellowCar.position.z += Math.sin(adjustedRotation) * carSpeed;
-
-        // Rotate all wheels when moving (forward or backward)
-        yellowCar.wheels.forEach((wheel: THREE.Mesh) => {
-          wheel.rotation.x += wheelRotationSpeed * Math.abs(carSpeed) * (carSpeed >= 0 ? 1 : -1);
-        });
+      // Rotate other cars slightly for visual interest (only if loaded)
+      if (car1 && car1.isLoaded) {
+        car1.rotation.y += 0.005;
+        if (car1.wheels) {
+          car1.wheels.forEach((wheel: THREE.Mesh) => {
+            if (wheel) wheel.rotation.x += 0.05;
+          });
+        }
       }
-
-      // Rotate other cars slightly for visual interest
-      car1.rotation.y += 0.005;
-      car2.rotation.y -= 0.005;
-      car3.rotation.y += 0.005;
-
-      // Rotate wheels of other cars
-      car1.wheels.forEach((wheel: THREE.Mesh) => {
-        wheel.rotation.x += 0.05;
-      });
-      car2.wheels.forEach((wheel: THREE.Mesh) => {
-        wheel.rotation.x += 0.05;
-      });
-      car3.wheels.forEach((wheel: THREE.Mesh) => {
-        wheel.rotation.x += 0.05;
-      });
+      if (car2 && car2.isLoaded) {
+        car2.rotation.y -= 0.005;
+        if (car2.wheels) {
+          car2.wheels.forEach((wheel: THREE.Mesh) => {
+            if (wheel) wheel.rotation.x += 0.05;
+          });
+        }
+      }
+      if (car3 && car3.isLoaded) {
+        car3.rotation.y += 0.005;
+        if (car3.wheels) {
+          car3.wheels.forEach((wheel: THREE.Mesh) => {
+            if (wheel) wheel.rotation.x += 0.05;
+          });
+        }
+      }
 
       // Mario 64 style tree sway animation (gentle wind effect)
       trees.forEach((tree, index) => {
