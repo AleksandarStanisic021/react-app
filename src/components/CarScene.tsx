@@ -492,10 +492,9 @@ export default function CarScene() {
           // Apply rotations to all wheels
           // Front wheels: steering (Y axis) + rolling (X axis)
           // Rear wheels: only rolling (X axis)
+          // Only update the rotations that change, not rotation.z (set once during creation)
           yellowCar.wheels.forEach((wheel: THREE.Mesh, index: number) => {
             if (wheel) {
-              wheel.rotation.z = Math.PI / 2; // Keep flat orientation
-              
               // Rolling rotation (X axis) - applies to all wheels
               wheel.rotation.x = wheelRollRotation;
               
@@ -511,7 +510,6 @@ export default function CarScene() {
           // When stopped, maintain steering but no rolling
           yellowCar.wheels.forEach((wheel: THREE.Mesh, index: number) => {
             if (wheel) {
-              wheel.rotation.z = Math.PI / 2;
               wheel.rotation.x = (yellowCar as any).wheelRollRotation || 0; // Keep current position
               
               // Maintain steering on front wheels
@@ -541,7 +539,6 @@ export default function CarScene() {
           
           car1.wheels.forEach((wheel: THREE.Mesh) => {
             if (wheel) {
-              wheel.rotation.z = Math.PI / 2;
               wheel.rotation.x = (car1 as any).wheelRollRotation;
               wheel.rotation.y = 0;
             }
@@ -561,7 +558,6 @@ export default function CarScene() {
           
           car2.wheels.forEach((wheel: THREE.Mesh) => {
             if (wheel) {
-              wheel.rotation.z = Math.PI / 2;
               wheel.rotation.x = (car2 as any).wheelRollRotation;
               wheel.rotation.y = 0;
             }
@@ -581,7 +577,6 @@ export default function CarScene() {
           
           car3.wheels.forEach((wheel: THREE.Mesh) => {
             if (wheel) {
-              wheel.rotation.z = Math.PI / 2;
               wheel.rotation.x = (car3 as any).wheelRollRotation;
               wheel.rotation.y = 0;
             }
