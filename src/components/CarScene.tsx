@@ -159,29 +159,37 @@ export default function CarScene() {
       const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
       const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
       
+      // Front left wheel
       const wheelFL = new THREE.Mesh(wheelGeometry, wheelMaterial);
-      wheelFL.rotation.z = Math.PI / 2;
+      wheelFL.rotation.z = Math.PI / 2; // Rotate to lie flat
       wheelFL.position.set(0.4, 0.3, 0.7);
       carGroup.add(wheelFL);
 
+      // Front right wheel
       const wheelFR = new THREE.Mesh(wheelGeometry, wheelMaterial);
-      wheelFR.rotation.z = Math.PI / 2;
+      wheelFR.rotation.z = Math.PI / 2; // Rotate to lie flat
       wheelFR.position.set(-0.4, 0.3, 0.7);
       carGroup.add(wheelFR);
 
+      // Rear left wheel
       const wheelRL = new THREE.Mesh(wheelGeometry, wheelMaterial);
-      wheelRL.rotation.z = Math.PI / 2;
+      wheelRL.rotation.z = Math.PI / 2; // Rotate to lie flat
       wheelRL.position.set(0.4, 0.3, -0.7);
       carGroup.add(wheelRL);
 
+      // Rear right wheel
       const wheelRR = new THREE.Mesh(wheelGeometry, wheelMaterial);
-      wheelRR.rotation.z = Math.PI / 2;
+      wheelRR.rotation.z = Math.PI / 2; // Rotate to lie flat
       wheelRR.position.set(-0.4, 0.3, -0.7);
       carGroup.add(wheelRR);
 
       carGroup.position.set(x, 0, z);
       carGroup.wheels = [wheelFL, wheelFR, wheelRL, wheelRR];
       carGroup.isLoaded = true;
+      
+      // Initialize wheel rotation accumulator to prevent flickering
+      (carGroup as any).wheelRollRotation = 0;
+      (carGroup as any).steeringAngle = 0;
       
       return carGroup;
     };
@@ -432,29 +440,32 @@ export default function CarScene() {
         // Rotation speed is proportional to current speed for realistic turning
         const effectiveRotationSpeed = rotationSpeed * (Math.abs(carSpeed) / maxSpeed + 0.3);
         
+        // Steering controls (A/D)
+        let steeringAngle = (yellowCar as any).steeringAngle || 0;
+        
         if (keys['a']) {
           // Turn left: rotation direction depends on whether moving forward or backward
           // When reversing, steering is inverted
           const turnDirection = carSpeed >= 0 ? 1 : -1;
           yellowCar.rotation.y += effectiveRotationSpeed * turnDirection;
           
-          // Rotate front wheels for steering visual
-          if (yellowCar.wheels[0]) yellowCar.wheels[0].rotation.y = Math.min(yellowCar.wheels[0].rotation.y + 0.05, 0.6);
-          if (yellowCar.wheels[1]) yellowCar.wheels[1].rotation.y = Math.min(yellowCar.wheels[1].rotation.y + 0.05, 0.6);
+          // Steer front wheels left (around Y axis for visual steering)
+          steeringAngle = Math.min(steeringAngle + 0.03, 0.5);
         } else if (keys['d']) {
           // Turn right: rotation direction depends on whether moving forward or backward
           const turnDirection = carSpeed >= 0 ? 1 : -1;
           yellowCar.rotation.y -= effectiveRotationSpeed * turnDirection;
           
-          // Rotate front wheels for steering visual
-          if (yellowCar.wheels[0]) yellowCar.wheels[0].rotation.y = Math.max(yellowCar.wheels[0].rotation.y - 0.05, -0.6);
-          if (yellowCar.wheels[1]) yellowCar.wheels[1].rotation.y = Math.max(yellowCar.wheels[1].rotation.y - 0.05, -0.6);
+          // Steer front wheels right (around Y axis for visual steering)
+          steeringAngle = Math.max(steeringAngle - 0.03, -0.5);
         } else {
           // Return wheels to center when not steering
-          if (yellowCar.wheels[0]) yellowCar.wheels[0].rotation.y *= 0.85;
-          if (yellowCar.wheels[1]) yellowCar.wheels[1].rotation.y *= 0.85;
+          steeringAngle *= 0.9;
         }
-
+        
+        // Store steering angle
+        (yellowCar as any).steeringAngle = steeringAngle;
+        
         // Move car based on its rotation and speed
         // Car's front faces positive Z when rotation.y = 0 (standard Three.js orientation)
         if (Math.abs(carSpeed) > 0.001) {
@@ -462,10 +473,53 @@ export default function CarScene() {
           yellowCar.position.x += Math.sin(yellowCar.rotation.y) * carSpeed;
           yellowCar.position.z += Math.cos(yellowCar.rotation.y) * carSpeed;
 
-          // Rotate all wheels when moving (forward or backward)
-          yellowCar.wheels.forEach((wheel: THREE.Mesh) => {
+          // Initialize wheel roll rotation if not exists
+          if (!(yellowCar as any).wheelRollRotation) {
+            (yellowCar as any).wheelRollRotation = 0;
+          }
+          
+          // Rotate wheels for rolling effect
+          // Wheels lie flat (rotation.z = PI/2), so they roll around X axis (horizontal)
+          const wheelRollDelta = wheelRotationSpeed * Math.abs(carSpeed) * (carSpeed >= 0 ? 1 : -1);
+          let wheelRollRotation = (yellowCar as any).wheelRollRotation + wheelRollDelta;
+          
+          // Normalize to prevent infinite growth and flickering
+          if (Math.abs(wheelRollRotation) > Math.PI * 20) {
+            wheelRollRotation = wheelRollRotation % (Math.PI * 2);
+          }
+          (yellowCar as any).wheelRollRotation = wheelRollRotation;
+          
+          // Apply rotations to all wheels
+          // Front wheels: steering (Y axis) + rolling (X axis)
+          // Rear wheels: only rolling (X axis)
+          yellowCar.wheels.forEach((wheel: THREE.Mesh, index: number) => {
             if (wheel) {
-              wheel.rotation.x += wheelRotationSpeed * Math.abs(carSpeed) * (carSpeed >= 0 ? 1 : -1);
+              wheel.rotation.z = Math.PI / 2; // Keep flat orientation
+              
+              // Rolling rotation (X axis) - applies to all wheels
+              wheel.rotation.x = wheelRollRotation;
+              
+              // Steering rotation (Y axis) - only for front wheels (index 0, 1)
+              if (index === 0 || index === 1) {
+                wheel.rotation.y = steeringAngle;
+              } else {
+                wheel.rotation.y = 0; // Rear wheels don't steer
+              }
+            }
+          });
+        } else {
+          // When stopped, maintain steering but no rolling
+          yellowCar.wheels.forEach((wheel: THREE.Mesh, index: number) => {
+            if (wheel) {
+              wheel.rotation.z = Math.PI / 2;
+              wheel.rotation.x = (yellowCar as any).wheelRollRotation || 0; // Keep current position
+              
+              // Maintain steering on front wheels
+              if (index === 0 || index === 1) {
+                wheel.rotation.y = steeringAngle;
+              } else {
+                wheel.rotation.y = 0;
+              }
             }
           });
         }
@@ -475,24 +529,62 @@ export default function CarScene() {
       if (car1 && car1.isLoaded) {
         car1.rotation.y += 0.005;
         if (car1.wheels) {
+          // Initialize wheel roll rotation if needed
+          if (!(car1 as any).wheelRollRotation) {
+            (car1 as any).wheelRollRotation = 0;
+          }
+          (car1 as any).wheelRollRotation += 0.05;
+          // Normalize to prevent flickering
+          if ((car1 as any).wheelRollRotation > Math.PI * 20) {
+            (car1 as any).wheelRollRotation = (car1 as any).wheelRollRotation % (Math.PI * 2);
+          }
+          
           car1.wheels.forEach((wheel: THREE.Mesh) => {
-            if (wheel) wheel.rotation.x += 0.05;
+            if (wheel) {
+              wheel.rotation.z = Math.PI / 2;
+              wheel.rotation.x = (car1 as any).wheelRollRotation;
+              wheel.rotation.y = 0;
+            }
           });
         }
       }
       if (car2 && car2.isLoaded) {
         car2.rotation.y -= 0.005;
         if (car2.wheels) {
+          if (!(car2 as any).wheelRollRotation) {
+            (car2 as any).wheelRollRotation = 0;
+          }
+          (car2 as any).wheelRollRotation += 0.05;
+          if ((car2 as any).wheelRollRotation > Math.PI * 20) {
+            (car2 as any).wheelRollRotation = (car2 as any).wheelRollRotation % (Math.PI * 2);
+          }
+          
           car2.wheels.forEach((wheel: THREE.Mesh) => {
-            if (wheel) wheel.rotation.x += 0.05;
+            if (wheel) {
+              wheel.rotation.z = Math.PI / 2;
+              wheel.rotation.x = (car2 as any).wheelRollRotation;
+              wheel.rotation.y = 0;
+            }
           });
         }
       }
       if (car3 && car3.isLoaded) {
         car3.rotation.y += 0.005;
         if (car3.wheels) {
+          if (!(car3 as any).wheelRollRotation) {
+            (car3 as any).wheelRollRotation = 0;
+          }
+          (car3 as any).wheelRollRotation += 0.05;
+          if ((car3 as any).wheelRollRotation > Math.PI * 20) {
+            (car3 as any).wheelRollRotation = (car3 as any).wheelRollRotation % (Math.PI * 2);
+          }
+          
           car3.wheels.forEach((wheel: THREE.Mesh) => {
-            if (wheel) wheel.rotation.x += 0.05;
+            if (wheel) {
+              wheel.rotation.z = Math.PI / 2;
+              wheel.rotation.x = (car3 as any).wheelRollRotation;
+              wheel.rotation.y = 0;
+            }
           });
         }
       }
