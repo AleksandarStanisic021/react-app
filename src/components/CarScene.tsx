@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import RAPIER from '@dimforge/rapier3d-compat';
 
 export default function CarScene() {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -305,6 +306,60 @@ export default function CarScene() {
     ground.position.y = 0;
     scene.add(ground);
 
+    // Initialize Rapier Physics
+    let world: RAPIER.World;
+    let physicsObjects: { mesh: THREE.Object3D; body: RAPIER.RigidBody; collider?: RAPIER.Collider }[] = [];
+    let yellowCarBody: RAPIER.RigidBody | null = null;
+
+    // Initialize physics asynchronously
+    RAPIER.init().then(() => {
+      // Create physics world with gravity
+      const gravity = new RAPIER.Vector3(0.0, -9.81, 0.0);
+      world = new RAPIER.World(gravity);
+
+      // Create static ground collider
+      const groundColliderDesc = RAPIER.ColliderDesc.cuboid(100, 0.1, 100);
+      const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+      world.createCollider(groundColliderDesc, groundBody);
+      
+      // Function to create physics body for yellow car
+      const createYellowCarPhysics = () => {
+        if (!yellowCar || !yellowCar.isLoaded) return;
+
+        // Create dynamic rigid body for the car
+        const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+          .setTranslation(yellowCar.position.x, yellowCar.position.y + 0.5, yellowCar.position.z)
+          .setRotation(new RAPIER.Quaternion(0, 0, 0, 1));
+        
+        yellowCarBody = world.createRigidBody(bodyDesc);
+        
+        // Create a box collider for the car (approximate car shape)
+        const carSize = new RAPIER.Vector3(0.5, 0.4, 1.0);
+        const carColliderDesc = RAPIER.ColliderDesc.cuboid(carSize.x, carSize.y, carSize.z)
+          .setDensity(100) // Car mass (density * volume)
+          .setFriction(0.7) // Good friction for car tires
+          .setRestitution(0.1); // Low bounce
+        
+        world.createCollider(carColliderDesc, yellowCarBody);
+        
+        // Store reference
+        physicsObjects.push({ mesh: yellowCar, body: yellowCarBody });
+      };
+
+      // Create physics for yellow car once it's loaded
+      if (yellowCar && yellowCar.isLoaded) {
+        createYellowCarPhysics();
+      } else {
+        // Wait for car to load
+        const checkCarLoaded = setInterval(() => {
+          if (yellowCar && yellowCar.isLoaded) {
+            createYellowCarPhysics();
+            clearInterval(checkCarLoaded);
+          }
+        }, 100);
+      }
+    });
+
     // Helper function to create Mario 64 style trees
     const createTree = (x: number, z: number, scale: number = 1) => {
       const treeGroup = new THREE.Group();
@@ -427,15 +482,16 @@ export default function CarScene() {
     window.addEventListener('keyup', handleKeyUp);
 
     // Car physics/control variables
-    let carSpeed = 0;
-    const maxSpeed = 0.15;
-    const acceleration = 0.005;
-    const deceleration = 0.01;
-    const rotationSpeed = 0.03;
+    const enginePower = 1500.0; // Force applied when accelerating
+    const maxSteerAngle = 0.6; // Maximum steering angle in radians
+    const steerSpeed = 0.05; // How fast steering changes
     const wheelRotationSpeed = 0.3;
+    const damping = 0.95; // Linear damping for realistic slowdown
+    const angularDamping = 0.9; // Angular damping to prevent spinning
 
     // Animation time for trees and clouds
     let animationTime = 0;
+    let lastTime = performance.now() / 1000;
 
     let reqId: number;
     const onResize = () => {
@@ -446,107 +502,152 @@ export default function CarScene() {
     };
 
     const animate = () => {
-      animationTime += 0.016; // Approximate frame time
-      // Handle yellow car controls (WASD)
-      if (keys['w']) {
-        carSpeed = Math.min(carSpeed + acceleration, maxSpeed);
-      } else if (keys['s']) {
-        carSpeed = Math.max(carSpeed - acceleration, -maxSpeed * 0.7); // Slower reverse
-      } else {
-        // Decelerate
-        if (carSpeed > 0) {
-          carSpeed = Math.max(carSpeed - deceleration, 0);
-        } else if (carSpeed < 0) {
-          carSpeed = Math.min(carSpeed + deceleration, 0);
+      const currentTime = performance.now() / 1000;
+      const deltaTime = Math.min(currentTime - lastTime, 0.033); // Cap at ~30fps minimum
+      lastTime = currentTime;
+      
+      animationTime += deltaTime;
+
+      // Apply physics-based car controls and step physics world if initialized
+      if (world && yellowCarBody && yellowCar && yellowCar.isLoaded && yellowCar.wheels && yellowCar.wheels.length >= 4) {
+          // Get current velocity
+          const linvel = yellowCarBody.linvel();
+          
+          // Get car's rotation (we'll sync it from physics, so use Three.js rotation for calculations)
+          const carRotation = yellowCar.rotation.y;
+          
+          // Calculate forward direction based on rotation (positive Z is forward in Three.js)
+          const forwardX = Math.sin(carRotation);
+          const forwardZ = Math.cos(carRotation);
+          
+          // Get current speed
+          const currentSpeed = Math.sqrt(linvel.x * linvel.x + linvel.z * linvel.z);
+          
+          // Handle steering (A/D)
+          let steeringAngle = (yellowCar as any).steeringAngle || 0;
+          let targetSteer = 0;
+          
+          if (keys['a']) {
+            targetSteer = maxSteerAngle;
+          } else if (keys['d']) {
+            targetSteer = -maxSteerAngle;
+          }
+          
+          // Smooth steering transition
+          steeringAngle += (targetSteer - steeringAngle) * steerSpeed;
+          (yellowCar as any).steeringAngle = steeringAngle;
+          
+          // Handle acceleration/braking (W/S)
+          let engineForce = 0;
+          if (keys['w']) {
+            engineForce = enginePower;
+          } else if (keys['s']) {
+            engineForce = -enginePower * 0.7; // Slower reverse
+          }
+          
+          // Apply engine force in car's forward direction
+          if (Math.abs(engineForce) > 0.01) {
+            const force = new RAPIER.Vector3(
+              forwardX * engineForce * deltaTime,
+              0,
+              forwardZ * engineForce * deltaTime
+            );
+            yellowCarBody.applyImpulse(force, true);
+          }
+          
+          // Apply steering torque (turning force)
+          if (Math.abs(steeringAngle) > 0.01 && currentSpeed > 0.1) {
+            // Steering effectiveness depends on speed
+            const steerStrength = Math.min(currentSpeed * 2, 1.0);
+            const torque = steeringAngle * 500 * steerStrength * deltaTime;
+            yellowCarBody.applyTorqueImpulse(new RAPIER.Vector3(0, torque, 0), true);
+          }
+          
+          // Apply damping for realistic physics
+          const currentLinvel = yellowCarBody.linvel();
+          yellowCarBody.setLinvel(new RAPIER.Vector3(
+            currentLinvel.x * damping,
+            currentLinvel.y, // Don't damp Y (gravity)
+            currentLinvel.z * damping
+          ), true);
+          
+          const currentAngvel = yellowCarBody.angvel();
+          yellowCarBody.setAngvel(new RAPIER.Vector3(
+            currentAngvel.x * angularDamping,
+            currentAngvel.y * angularDamping,
+            currentAngvel.z * angularDamping
+          ), true);
+          
+          // Store values for wheel rotation after physics step
+          (yellowCar as any).__currentSpeed = currentSpeed;
+          (yellowCar as any).__engineForce = engineForce;
         }
+      
+      // Step physics world
+      if (world) {
+        world.step();
       }
-
-      // Only update car controls if yellowCar is loaded and has wheels
-      if (yellowCar && yellowCar.isLoaded && yellowCar.wheels && yellowCar.wheels.length >= 4) {
-        // Steering controls (A/D)
-        // Rotation speed is proportional to current speed for realistic turning
-        const effectiveRotationSpeed = rotationSpeed * (Math.abs(carSpeed) / maxSpeed + 0.3);
+      
+      // Sync Three.js car position/rotation with physics body
+      if (yellowCarBody && yellowCar && yellowCar.isLoaded && yellowCar.wheels && yellowCar.wheels.length >= 4) {
+        const bodyPosition = yellowCarBody.translation();
+        yellowCar.position.set(bodyPosition.x, bodyPosition.y - 0.5, bodyPosition.z);
         
-        // Steering controls (A/D)
-        let steeringAngle = (yellowCar as any).steeringAngle || 0;
+        const bodyRotation = yellowCarBody.rotation();
+        const euler = new THREE.Euler().setFromQuaternion(
+          new THREE.Quaternion(bodyRotation.x, bodyRotation.y, bodyRotation.z, bodyRotation.w)
+        );
+        yellowCar.rotation.y = euler.y;
         
-        if (keys['a']) {
-          // Turn left: rotation direction depends on whether moving forward or backward
-          // When reversing, steering is inverted
-          const turnDirection = carSpeed >= 0 ? 1 : -1;
-          yellowCar.rotation.y += effectiveRotationSpeed * turnDirection;
-          
-          // Steer front wheels left (around Y axis for visual steering)
-          steeringAngle = Math.min(steeringAngle + 0.03, 0.5);
-        } else if (keys['d']) {
-          // Turn right: rotation direction depends on whether moving forward or backward
-          const turnDirection = carSpeed >= 0 ? 1 : -1;
-          yellowCar.rotation.y -= effectiveRotationSpeed * turnDirection;
-          
-          // Steer front wheels right (around Y axis for visual steering)
-          steeringAngle = Math.max(steeringAngle - 0.03, -0.5);
-        } else {
-          // Return wheels to center when not steering
-          steeringAngle *= 0.9;
+        // Get current speed for wheel rotation
+        const linvel = yellowCarBody.linvel();
+        const currentSpeed = (yellowCar as any).__currentSpeed || Math.sqrt(linvel.x * linvel.x + linvel.z * linvel.z);
+        
+        // Calculate wheel rotation based on speed
+        const wheelSpeed = currentSpeed * wheelRotationSpeed;
+        
+        // Initialize wheel roll rotation if not exists
+        if (!(yellowCar as any).wheelRollRotation) {
+          (yellowCar as any).wheelRollRotation = 0;
         }
         
-        // Store steering angle
-        (yellowCar as any).steeringAngle = steeringAngle;
+        // Get steering angle
+        const steeringAngle = (yellowCar as any).steeringAngle || 0;
         
-        // Move car based on its rotation and speed
-        // Car's front faces positive Z when rotation.y = 0 (standard Three.js orientation)
-        if (Math.abs(carSpeed) > 0.001) {
-          // Move forward/backward based on car's current rotation
-          yellowCar.position.x += Math.sin(yellowCar.rotation.y) * carSpeed;
-          yellowCar.position.z += Math.cos(yellowCar.rotation.y) * carSpeed;
-
-          // Initialize wheel roll rotation if not exists
-          if (!(yellowCar as any).wheelRollRotation) {
-            (yellowCar as any).wheelRollRotation = 0;
-          }
-          
-          // Rotate wheels for rolling effect
-          // Wheels lie flat (rotation.z = PI/2), so they roll around X axis (horizontal)
-          const wheelRollDelta = wheelRotationSpeed * Math.abs(carSpeed) * (carSpeed >= 0 ? 1 : -1);
-          let wheelRollRotation = (yellowCar as any).wheelRollRotation + wheelRollDelta;
-          
-          // Normalize to prevent infinite growth and flickering
-          if (Math.abs(wheelRollRotation) > Math.PI * 20) {
-            wheelRollRotation = wheelRollRotation % (Math.PI * 2);
-          }
-          (yellowCar as any).wheelRollRotation = wheelRollRotation;
-          
-          // Apply rotations to all wheels
-          // Front wheels: steering (Y axis) + rolling (X axis)
-          // Rear wheels: only rolling (X axis)
-          // Only update the rotations that change, not rotation.z (set once during creation)
-          yellowCar.wheels.forEach((wheel: THREE.Mesh, index: number) => {
-            if (wheel) {
-              // Rolling rotation (X axis) - applies to all wheels
-              wheel.rotation.x = wheelRollRotation;
-              
-              // Steering rotation (Y axis) - only for front wheels (index 0, 1)
-              if (index === 0 || index === 1) {
-                wheel.rotation.y = steeringAngle;
-              } else {
-                wheel.rotation.y = 0; // Rear wheels don't steer
-              }
+        // Update wheel roll rotation based on movement direction
+        const engineForce = (yellowCar as any).__engineForce || 0;
+        const direction = engineForce >= 0 ? 1 : -1;
+        (yellowCar as any).wheelRollRotation += wheelSpeed * direction * deltaTime;
+        
+        // Normalize to prevent infinite growth
+        if (Math.abs((yellowCar as any).wheelRollRotation) > Math.PI * 20) {
+          (yellowCar as any).wheelRollRotation = (yellowCar as any).wheelRollRotation % (Math.PI * 2);
+        }
+        
+        // Apply wheel rotations
+        yellowCar.wheels.forEach((wheel: THREE.Mesh, index: number) => {
+          if (wheel) {
+            wheel.rotation.x = (yellowCar as any).wheelRollRotation;
+            
+            // Steering rotation for front wheels only
+            if (index === 0 || index === 1) {
+              wheel.rotation.y = steeringAngle;
+            } else {
+              wheel.rotation.y = 0;
             }
-          });
-        } else {
-          // When stopped, maintain steering but no rolling
-          yellowCar.wheels.forEach((wheel: THREE.Mesh, index: number) => {
-            if (wheel) {
-              wheel.rotation.x = (yellowCar as any).wheelRollRotation || 0; // Keep current position
-              
-              // Maintain steering on front wheels
-              if (index === 0 || index === 1) {
-                wheel.rotation.y = steeringAngle;
-              } else {
-                wheel.rotation.y = 0;
-              }
-            }
-          });
+          }
+        });
+      } else if (yellowCar && yellowCar.isLoaded && yellowCar.wheels && yellowCar.wheels.length >= 4) {
+        // Fallback: sync visual with physics body if it exists but isn't fully set up
+        if (yellowCarBody) {
+          const bodyPosition = yellowCarBody.translation();
+          yellowCar.position.set(bodyPosition.x, bodyPosition.y - 0.5, bodyPosition.z);
+          
+          const bodyRotation = yellowCarBody.rotation();
+          const euler = new THREE.Euler().setFromQuaternion(
+            new THREE.Quaternion(bodyRotation.x, bodyRotation.y, bodyRotation.z, bodyRotation.w)
+          );
+          yellowCar.rotation.y = euler.y;
         }
       }
 
